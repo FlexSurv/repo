@@ -36,6 +36,7 @@
 	intervals = ,			/*	life table intervals to be used in analysis				*/
 							/*	monthly to 6 months, then every 3 months to 2 years		*/
 							/*	these defaults are for the CPAC 2-yr analysis			*/
+							/*	the specification intervals = failures is also allowed	*/
 	popmort = stat.life_tab2014,
 							/*	life table for your province							*/
 	survprob = prob,		/*	variable in life table holding survival probability 	*/						
@@ -146,7 +147,7 @@
 	%let cens_val = %scan(&censor.,2,'()');
 	%if &cens_val. eq  %then %err_mess(censoring value is required); 
 	%if &intervals. eq  %then %err_mess(intervals parameter is required); 
-	%if &intervals. ne %then %do;
+	%if &intervals. ne  and %lowcase(&intervals.) ne failures %then %do;
 		%if %scan(&intervals., 1) ne 0 %then %err_mess(intervals must start at 0); 
 	%end;
 	%if "&PatientID." eq "" %then %err_mess(patient ID parameter is required); 
