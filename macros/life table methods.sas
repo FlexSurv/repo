@@ -3,6 +3,10 @@
 
 	5 Nov 2021
 
+	11 Jan 2022
+	added option for calculation of CIs in the spirit of strs that allows chosing
+	either log-log or log transform (see CI parameter)
+
 */
 
 *	rel_surv   	a macro to be used in the life table analysis of relative survival
@@ -39,7 +43,9 @@
 							/*	the specification intervals = failures is also allowed	*/
 	popmort = stat.life_tab2014,
 							/*	life table for your province							*/
-	survprob = prob,		/*	variable in life table holding survival probability 	*/						
+	survprob = prob,		/*	variable in life table holding survival probability 	*/	
+	ci = log-log,			/*	log-log for log(-log) transform (default)				*/
+							/*	log for log transform 									*/	
 	mergeby = _age sex _year,
 							/*	life table variables must be in correct order			*/ 
 							/*	(age/sex/year) followed by any other stratifier,		*/
@@ -108,6 +114,7 @@
 		%err_mess( life table file &popmort. not found  ); 
 		%goto fin;
 	%end;
+
 *	must be at least 3 variables in the mergeby parameter;
 	%let wc = %sysfunc(countw(&mergeby.,' '));
 	%if &wc. lt 3 %then %do;
@@ -127,6 +134,12 @@
 
 	%if &yydx. ^= and &exit. = %then %do;
 		%err_mess(yydx must be accompanied by the exit paramter);
+		%goto fin;
+	%end;
+
+	%let ci = %lowcase(&ci.);
+	%if %sysfunc(findw(log-log log, &ci.)) eq 0 %then %do;
+		%err_mess(CI parameter accepts only log-log or log. You specified &ci.);
 		%goto fin;
 	%end;
 	
@@ -667,85 +680,86 @@ data &crude_estimates.;
 	fu1 = fu1+1;
 
 *	observed and expected survival probabilities for this interval;
-		px(fu1)	= p;
-		ex(fu1)	= p_star;		
+	px(fu1)	= p;
+	ex(fu1)	= p_star;		
 
 *	variance-equivalence estimate of effective number at risk (Enzo Coviello, 23 Dec, 2014);
-		nx(fu1) 	= d/2 + sqrt((d/2)**2 + (y/length)**2);
+	nx(fu1) 	= d/2 + sqrt((d/2)**2 + (y/length)**2);
 
 *	temporary calculations for interval-specific crude prob death (due to cancer/other);
-		c_cgc 		= se_temp - var_lambda + ((p/(p_star-p))**2)*var_lambda;
-		c_cgo 		= se_temp - var_lambda + ((p/(p_star+p))**2)*var_lambda;
+	c_cgc 		= se_temp - var_lambda + ((p/(p_star-p))**2)*var_lambda;
+	c_cgo 		= se_temp - var_lambda + ((p/(p_star+p))**2)*var_lambda;
 
 *	calculations for crude probabilities of death;
-		gxc			= cp*(1/p)*(1-p/p_star)*(1-.5*(1-p_star));	*	gxc in Cronin & Feuer;
-		gxo			= cp*(1/p)*(1-p_star)*(1-.5*(1-p/p_star));	*	gxo in Cronin & Feuer;
-		Pi_p(fu1) 	= cp;
-		se_t(fu1)	= se_temp;
+	gxc			= cp*(1/p)*(1-p/p_star)*(1-.5*(1-p_star));	*	gxc in Cronin & Feuer;
+	gxo			= cp*(1/p)*(1-p_star)*(1-.5*(1-p/p_star));	*	gxo in Cronin & Feuer;
+	Pi_p(fu1) 	= cp;
+	se_t(fu1)	= se_temp;
 
 *	variance calculations for crude probabilities of death;
-		se_gxc		= gxc*sqrt(c_cgc);			*	se of interval crude prob of death due to cancer;
-		se_gxo		= gxo*sqrt(c_cgo);			*	se of interval crude prob of death due to other causes;
+	se_gxc		= gxc*sqrt(c_cgc);			*	se of interval crude prob of death due to cancer;
+	se_gxo		= gxo*sqrt(c_cgo);			*	se of interval crude prob of death due to other causes;
 
 *	from p 1733 of Cronin & Feuer;
-		if fu1 = 1 then do;
-			c_v_gxc	= se_gxc**2;				*	variance of first interval;
-			c_v_gxo	= se_gxo**2;
-			var_gxc = c_v_gxc;
-			var_gxo = c_v_gxo;
-		end;
-		else do;
-			c_v_gxc	= c_v_gxc + se_gxc**2;		*	cumulative sums of variances;
-			c_v_gxo	= c_v_gxo + se_gxo**2;
-			cov_c = 0;
-			cov_o = 0;
-			do _k_ = 2 to fu1;
-				do _j_ = 2 to _k_; 
-					if _j_ = 2 then do;
-						PP_1 = 1;
-						ne = 0;
-					end;
-					else do;
-						PP_1 = Pi_p(_j_-2);
-						ne = se_t(_j_-2);
-					end;
-					cov_c = cov_c + (
-						Pi_p(_k_-1)*PP_1
-						*(1-.5*(1-ex(_j_-1)))*(1-.5*(1-ex(_k_)))
-						*(1-px(_k_)/ex(_k_))*(1-px(_j_-1)/ex(_j_-1))
-						*(ne-(1-px(_j_-1))/((ex(_j_-1)-px(_j_-1))*nx(_j_-1)))); 
-
-					cov_o = cov_o + (
-						Pi_p(_k_-1)*PP_1
-						*(1-ex(_j_-1))*(1-ex(_k_))
-						*(1-.5*(1-px(_k_)/ex(_k_)))*(1-.5*(1-px(_j_-1)/ex(_j_-1)))
-						*(ne+(1-px(_j_-1))/((ex(_j_-1)+px(_j_-1))*nx(_j_-1)))); 
+	if fu1 = 1 then do;
+		c_v_gxc	= se_gxc**2;				*	variance of first interval;
+		c_v_gxo	= se_gxo**2;
+		var_gxc = c_v_gxc;
+		var_gxo = c_v_gxo;
+	end;
+	else do;
+		c_v_gxc	= c_v_gxc + se_gxc**2;		*	cumulative sums of variances;
+		c_v_gxo	= c_v_gxo + se_gxo**2;
+		cov_c = 0;
+		cov_o = 0;
+		do _k_ = 2 to fu1;
+			do _j_ = 2 to _k_; 
+				if _j_ = 2 then do;
+					PP_1 = 1;
+					ne = 0;
 				end;
+				else do;
+					PP_1 = Pi_p(_j_-2);
+					ne = se_t(_j_-2);
+				end;
+				cov_c = cov_c + (
+					Pi_p(_k_-1)*PP_1
+					*(1-.5*(1-ex(_j_-1)))*(1-.5*(1-ex(_k_)))
+					*(1-px(_k_)/ex(_k_))*(1-px(_j_-1)/ex(_j_-1))
+					*(ne-(1-px(_j_-1))/((ex(_j_-1)-px(_j_-1))*nx(_j_-1)))); 
+
+				cov_o = cov_o + (
+					Pi_p(_k_-1)*PP_1
+					*(1-ex(_j_-1))*(1-ex(_k_))
+					*(1-.5*(1-px(_k_)/ex(_k_)))*(1-.5*(1-px(_j_-1)/ex(_j_-1)))
+					*(ne+(1-px(_j_-1))/((ex(_j_-1)+px(_j_-1))*nx(_j_-1)))); 
 			end;
-			var_gxc = c_v_gxc + 2*cov_c;		*	variances + 2*covariances;
-			var_gxo = c_v_gxo + 2*cov_o;
-		end;				 
+		end;
+
+		var_gxc = c_v_gxc + 2*cov_c;		*	variances + 2*covariances;
+		var_gxo = c_v_gxo + 2*cov_o;
+	end;				 
 
 *	confidence limits on interval-specific crude probabilities;
-		lo_gxc		= gxc-1.96*se_gxc;
-		hi_gxc		= gxc+1.96*se_gxc;
-		lo_gxo		= gxo-1.96*se_gxo;
-		hi_gxo		= gxo+1.96*se_gxo;
+	lo_gxc		= gxc-1.96*se_gxc;
+	hi_gxc		= gxc+1.96*se_gxc;
+	lo_gxo		= gxo-1.96*se_gxo;
+	hi_gxo		= gxo+1.96*se_gxo;
 
 *	cumulative crude probabilities and confidence limits;
-		cgc 		= cgc + gxc;				*	Gxc in Cronin and Feuer;
-		cgo 		= cgo + gxo;				*	Gxo in Cronin and Feuer;
+	cgc 		= cgc + gxc;				*	Gxc in Cronin and Feuer;
+	cgo 		= cgo + gxo;				*	Gxo in Cronin and Feuer;
 		
 *	If either cgc or cgo fall outside of the natural domain (0,1), then the 
 	confidence limits are undefined;
-		if 1 > cgc > 0 and var_gxc > 0 then do;
-			lo_cgc		= cgc**exp(-1.96*sqrt(var_gxc)/(cgc*log(cgc)));
-			hi_cgc		= cgc**exp(1.96*sqrt(var_gxc)/(cgc*log(cgc)));
-		end;
-		if 1 > cgo > 0 and var_gxo > 0 then do;
-			lo_cgo		= cgo**exp(-1.96*sqrt(var_gxo)/(cgo*log(cgo)));
-			hi_cgo		= cgo**exp(1.96*sqrt(var_gxo)/(cgo*log(cgo)));
-		end;
+	if 1 > cgc > 0 and var_gxc > 0 then do;
+		lo_cgc		= cgc**exp(-1.96*sqrt(var_gxc)/(cgc*log(cgc)));
+		hi_cgc		= cgc**exp(1.96*sqrt(var_gxc)/(cgc*log(cgc)));
+	end;
+	if 1 > cgo > 0 and var_gxo > 0 then do;
+		lo_cgo		= cgo**exp(-1.96*sqrt(var_gxo)/(cgo*log(cgo)));
+		hi_cgo		= cgo**exp(1.96*sqrt(var_gxo)/(cgo*log(cgo)));
+	end;
 *	end of CIF calculations;
 
 *	PPE calculations  (PPE weighted y can be 0 in situations of late entry)   19 June 2020;
@@ -762,40 +776,53 @@ data &crude_estimates.;
 		se_ppe			= cr_p*sqrt(v_l_w);					*	se of cumulative PPE relative survival;
 
 *	calculations for interval net survival CI;
-		if 1.0e-150 < os_w < 1 then do;
-			se_pw 		= os_w*length*sqrt(d_weigh)/y_weigh;
-			se_lh_pw	= -length*sqrt(d_weigh)/(y_weigh*log(os_w));
-			lo_lh_pw	= log(-log(os_w))+1.96*se_lh_pw;
-			hi_lh_pw	= log(-log(os_w))-1.96*se_lh_pw;
-			lo_pw		= exp(-exp(lo_lh_pw));
-			hi_pw		= exp(-exp(hi_lh_pw));
+		se_pw 		= os_w*length*sqrt(d_weigh)/y_weigh;
+		if "&ci." = "log-log" then do;
+			if 1.0e-150 < os_w < 1 then do;
+				se_lh_pw	= -length*sqrt(d_weigh)/(y_weigh*log(os_w));
+				lo_lh_pw	= log(-log(os_w))+1.96*se_lh_pw;
+				hi_lh_pw	= log(-log(os_w))-1.96*se_lh_pw;
+				lo_pw		= exp(-exp(lo_lh_pw));
+				hi_pw		= exp(-exp(hi_lh_pw));
+				lo_rw		= lo_pw/es_w;
+				hi_rw		= hi_pw/es_w;
+			end;
+			else do;
+				lo_rw		= .;
+				hi_rw		= .;
+			end;
+		end;
+		if "&ci." = "log" then do;
+			lo_pw		= os_w*exp(-se_pw*1.96/os_w);
+			hi_pw		= os_w*exp(se_pw*1.96/os_w);
 			lo_rw		= lo_pw/es_w;
 			hi_rw		= hi_pw/es_w;
 		end;
-		else do;
-			lo_rw		= .;
-			hi_rw		= .;
-		end;
+		
 	end;
 
+*	Pohar-Perme cumulative net survival;
+	if "&ci." = "log-log" then do;			*	log-log transform;
 *	if cr_p >= 1 then confidence limits are undefined;
 *	if cr_p is very small, or very close to 1, then the computation below involves division by zero;
-	if 0 < cr_p < 1  then do;
-		if abs( log(-log(cr_p)) - se_ppe*1.96/(cr_p*log(cr_p)) ) < 250 then do;
-			lo_cr_p 		=  exp(-exp(log(-log(cr_p)) - se_ppe*1.96/(cr_p*log(cr_p)))); 
-			hi_cr_p 		=  exp(-exp(log(-log(cr_p)) + se_ppe*1.96/(cr_p*log(cr_p))));   
-			se_lh_cpp 		=  sqrt( se_ppe**2/(cr_p*log(cr_p))**2 );
+		if 0 < cr_p < 1  then do;
+			if abs( log(-log(cr_p)) - se_ppe*1.96/(cr_p*log(cr_p)) ) < 250 then do;
+				lo_cr_p 		=  exp(-exp(log(-log(cr_p)) - se_ppe*1.96/(cr_p*log(cr_p)))); 
+				hi_cr_p 		=  exp(-exp(log(-log(cr_p)) + se_ppe*1.96/(cr_p*log(cr_p))));   
+				se_lh_cpp 		=  sqrt( se_ppe**2/(cr_p*log(cr_p))**2 );
+			end;
+		end;
+		else do;	*	confidence limits undefined;
+			lo_cr_p = .;
+			hi_cr_p = .;
 		end;
 	end;
-	else do;	*	confidence limits undefined;
-		lo_cr_p = .;
-		hi_cr_p = .;
+	else if "&ci." = "log" then do;		*	log transform;
+		lo_cr_p	= cr_p*exp(-se_ppe*1.96/cr_p);
+		hi_cr_p	= cr_p*exp(se_ppe*1.96/cr_p);
 	end;
 
-	
-*	Calculate confidence intervals on the log-hazard scale and back transform;
-*	test for very small (non-zeo) prob estimate to avoid division by zero in the se_lh_p calculation;
-*	thanks to Larry Ellison for pointing this out;
+*	Ederer II estimates;	
   	if se_p ^= 0 and 1.0e-150 < p < 1 then do;			*	First for the interval specific estimates;
     	se_lh_p = sqrt(se_p**2/(p*log(p))**2);			*	SE on the log-hazard scale using Taylor series approximation;
 
@@ -813,27 +840,38 @@ data &crude_estimates.;
 	end;
 
 *	the cumulative estimates;
-    if  1.0e-150 < cp < 1 then do;
-    	se_lh_cp = sqrt( se_cp**2/(cp*log(cp))**2);        * SE on the log-hazard scale using Taylor series approximation;
+	if "&ci." = "log-log" then do;
+	    if  1.0e-150 < cp < 1 then do;
+	    	se_lh_cp = sqrt( se_cp**2/(cp*log(cp))**2);        * SE on the log-hazard scale using Taylor series approximation;
 
 *	Confidence limits on the log-hazard scale;
-    	lo_lh_cp = log(-log(cp)) + 1.96*se_lh_cp;
-    	hi_lh_cp = log(-log(cp)) - 1.96*se_lh_cp;
+	    	lo_lh_cp = log(-log(cp)) + 1.96*se_lh_cp;
+	    	hi_lh_cp = log(-log(cp)) - 1.96*se_lh_cp;
 
 *	Confidence limits on the survival scale (observed survival);
-    	lo_cp = exp(-exp(lo_lh_cp));
-    	hi_cp = exp(-exp(hi_lh_cp));
+	    	lo_cp = exp(-exp(lo_lh_cp));
+	    	hi_cp = exp(-exp(hi_lh_cp));
 
 *	Confidence limits for the corresponding relative survival rate;
-    	lo_cr = lo_cp/cp_star;
-    	hi_cr = hi_cp/cp_star;
-    end;
-    else do;
-        	lo_cp = .;
-    		hi_cp = .;
-	    	lo_cr = .;
-    		hi_cr = .;
-    end;		
+	    	lo_cr = lo_cp/cp_star;
+	    	hi_cr = hi_cp/cp_star;
+	    end;
+		else do;
+	        	lo_cp = .;
+	    		hi_cp = .;
+		    	lo_cr = .;
+	    		hi_cr = .;
+		end;
+	end;
+
+*	using log transform;
+	if "&ci." = "log" then do;
+	    lo_cp = cp*exp(-se_cp*1.96/cp);
+	   	hi_cp = cp*exp(se_cp*1.96/cp);
+
+	   	lo_cr = lo_cp/cp_star;
+	   	hi_cr = hi_cp/cp_star;
+	end;
 
 *	evaluation of variability of survival estimate(s);
 		se_flag = 'SE unavailable';
@@ -851,7 +889,6 @@ data &crude_estimates.;
 		end;
 		
 		
-/* 	end; */
 
  *	Formats and labels;
     format lo_p hi_p lo_r hi_r lo_cp hi_cp lo_cr hi_cr lo_cr_p hi_cr_p lo_rw hi_rw 
