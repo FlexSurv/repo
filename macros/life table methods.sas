@@ -1,11 +1,12 @@
 /*	
-	life table methods
+	life table methods (dev)
+	(in development)
 
 	5 Nov 2021
 
 	11 Jan 2022
-	added option for calculation of CIs in the spirit of strs that allows chosing
-	either log-log or log transform (see CI parameter)
+	added option for calculation of CIs that allows chosing either loghaz 
+	or log transform (see CI parameter)
 
 */
 
@@ -44,8 +45,10 @@
 	popmort = stat.life_tab2014,
 							/*	life table for your province							*/
 	survprob = prob,		/*	variable in life table holding survival probability 	*/	
-	ci = log-log,			/*	log-log for log(-log) transform (default)				*/
-							/*	log for log transform 									*/	
+	ci = loghaz,			/*	loghaz for log cumulative excess hazard 				*/
+							/*	that is, log(-log(R(t)))								*/
+							/*	haz for calculation on the cumulative excess hazard 	*/
+							/*	scale that is, log(R(t)	 								*/	
 	mergeby = _age sex _year,
 							/*	life table variables must be in correct order			*/ 
 							/*	(age/sex/year) followed by any other stratifier,		*/
@@ -138,8 +141,8 @@
 	%end;
 
 	%let ci = %lowcase(&ci.);
-	%if %sysfunc(findw(log-log log, &ci.)) eq 0 %then %do;
-		%err_mess(CI parameter accepts only log-log or log. You specified &ci.);
+	%if %sysfunc(findw(loghaz haz, &ci.)) eq 0 %then %do;
+		%err_mess(CI parameter accepts only loghaz or haz. You specified &ci.);
 		%goto fin;
 	%end;
 	
@@ -777,8 +780,8 @@ data &crude_estimates.;
 
 *	calculations for interval net survival CI;
 		se_pw 		= os_w*length*sqrt(d_weigh)/y_weigh;
-		if "&ci." = "log-log" then do;
-			if 1.0e-150 < os_w < 1 then do;
+		if "&ci." = "loghaz" then do;
+			if 0 < os_w and os_w ^= 1 then do;
 				se_lh_pw	= -length*sqrt(d_weigh)/(y_weigh*log(os_w));
 				lo_lh_pw	= log(-log(os_w))+1.96*se_lh_pw;
 				hi_lh_pw	= log(-log(os_w))-1.96*se_lh_pw;
@@ -792,7 +795,7 @@ data &crude_estimates.;
 				hi_rw		= .;
 			end;
 		end;
-		if "&ci." = "log" then do;
+		if "&ci." = "haz" then do;
 			lo_pw		= os_w*exp(-se_pw*1.96/os_w);
 			hi_pw		= os_w*exp(se_pw*1.96/os_w);
 			lo_rw		= lo_pw/es_w;
@@ -802,9 +805,10 @@ data &crude_estimates.;
 	end;
 
 *	Pohar-Perme cumulative net survival;
-	if "&ci." = "log-log" then do;			*	log-log transform;
+	if "&ci." = "loghaz" then do;			*	loghaz transform;
 *	if cr_p >= 1 then confidence limits are undefined;
 *	if cr_p is very small, or very close to 1, then the computation below involves division by zero;
+*	use the ci = log specification, or request Ederer II estimates of relative survival;
 		if 0 < cr_p < 1  then do;
 			if abs( log(-log(cr_p)) - se_ppe*1.96/(cr_p*log(cr_p)) ) < 250 then do;
 				lo_cr_p 		=  exp(-exp(log(-log(cr_p)) - se_ppe*1.96/(cr_p*log(cr_p)))); 
@@ -817,30 +821,41 @@ data &crude_estimates.;
 			hi_cr_p = .;
 		end;
 	end;
-	else if "&ci." = "log" then do;		*	log transform;
+	else if "&ci." = "haz" then do;		*	log transform;
 		lo_cr_p	= cr_p*exp(-se_ppe*1.96/cr_p);
 		hi_cr_p	= cr_p*exp(se_ppe*1.96/cr_p);
 	end;
 
+*	interval Ederer II estimates;
+	if "&ci." = "loghaz" then do;			*	loghaz transform;
 *	Ederer II estimates;	
-  	if se_p ^= 0 and 1.0e-150 < p < 1 then do;			*	First for the interval specific estimates;
-    	se_lh_p = sqrt(se_p**2/(p*log(p))**2);			*	SE on the log-hazard scale using Taylor series approximation;
+	  	if p > 0 and  p ^= 1 then do;			*	First for the interval specific estimates;
+	    	se_lh_p = sqrt(se_p**2/(p*log(p))**2);			*	SE on the log-hazard scale using Taylor series approximation;
 
 *	Confidence limits on the log-hazard scale;
-    	lo_lh_p = log(-log(p)) + 1.96*se_lh_p;
-    	hi_lh_p = log(-log(p)) - 1.96*se_lh_p;
+	    	lo_lh_p = log(-log(p)) + 1.96*se_lh_p;
+	    	hi_lh_p = log(-log(p)) - 1.96*se_lh_p;
 
 *	Confidence limits on the survival scale (observed survival);
-    	lo_p = exp(-exp(lo_lh_p));
-    	hi_p = exp(-exp(hi_lh_p));
+	    	lo_p = exp(-exp(lo_lh_p));
+	    	hi_p = exp(-exp(hi_lh_p));
 
 *	Confidence limits for the corresponding relative survival rate;
-    	lo_r = lo_p/p_star;
-    	hi_r = hi_p/p_star;
+	    	lo_r = lo_p/p_star;
+	    	hi_r = hi_p/p_star;
+		end;
+	end;
+
+	if "&ci." = "haz" then do;			*	log transform;
+	    	lo_p = p*exp(-se_p*1.96/p);
+	    	hi_p = p*exp(se_p*1.96/p);
+
+	    	lo_r = lo_p/p_star;
+	    	hi_r = hi_p/p_star;
 	end;
 
 *	the cumulative estimates;
-	if "&ci." = "log-log" then do;
+	if "&ci." = "loghaz" then do;
 	    if  1.0e-150 < cp < 1 then do;
 	    	se_lh_cp = sqrt( se_cp**2/(cp*log(cp))**2);        * SE on the log-hazard scale using Taylor series approximation;
 
@@ -865,13 +880,14 @@ data &crude_estimates.;
 	end;
 
 *	using log transform;
-	if "&ci." = "log" then do;
+	if "&ci." = "haz" then do;
 	    lo_cp = cp*exp(-se_cp*1.96/cp);
 	   	hi_cp = cp*exp(se_cp*1.96/cp);
 
 	   	lo_cr = lo_cp/cp_star;
 	   	hi_cr = hi_cp/cp_star;
 	end;
+*	end of interval EII estimates;
 
 *	evaluation of variability of survival estimate(s);
 		se_flag = 'SE unavailable';
@@ -947,9 +963,11 @@ data &crude_estimates.;
 		v_ns_w ;
 run;
 
+*	note if interval-specific estimates are greater than 1;
 %if "&RS_mess." ne "" %then %do;
-	%put Conditional Relative Survival is greater than 1 for some intervals;
-	%put correspoding confidence intervals are undefined and have been set to missing;
+	%put Conditional relative/net Survival is greater than 1 for some intervals;
+	%if "&ci." eq "loghaz" %then 
+		%put correspoding confidence intervals are undefined and have been set to missing;
 %end;
 
 
@@ -1134,15 +1152,27 @@ data &std_estimates.;
 	if var_p_ageadj ^= . then se_cp_ageadj = sqrt(var_p_ageadj);
 	if var_r_ageadj ^= . then se_cr_ageadj = sqrt(var_r_ageadj);
 	
-*	confidence limits as computed in strs;
-*	confidence limits are missing if as_rel > 1;
+*	standardised observed survival is missing if >= 1;
 	if as_obs < 1 and se_cr_ageadj ^= . then do;
 		lo_obs = as_obs**exp( -1.96*abs(se_cp_ageadj/(as_obs*log(as_obs))));   
 		hi_obs = as_obs**exp( 1.96*abs(se_cp_ageadj/(as_obs*log(as_obs))));   
+	end;
 
-		if as_rel < 1 then do;
+*	using CI settings as of 26 Jan 2021;
+	if "&ci." = "loghaz" then do;
+		if 0< as_rel and as_rel ^= 1 then do;
 			hi_rel = as_rel**exp( -1.96*abs(se_cr_ageadj/(as_rel*log(as_rel))));   
 			lo_rel = as_rel**exp( 1.96*abs(se_cr_ageadj/(as_rel*log(as_rel)))); 
+		end;
+		else do;
+			hi_rel = .;
+			lo_rel = .;
+		end; 
+	end;
+	if "&ci." = "haz" then do;
+		if 0< as_rel and as_rel ^= 1 then do;
+			hi_rel = as_rel*exp(1.96*se_cr_ageadj/as_rel) ; 
+			lo_rel = as_rel*exp(-1.96*se_cr_ageadj/as_rel) ; 
 		end;
 		else do;
 			hi_rel = .;
@@ -1187,11 +1217,11 @@ run;
 %end;
 
 *	clean up temporary files;
-/*proc datasets library = work nolist force nowarn;*/
-/*	delete _case_weights _cases_new discrd rs_ageadj2 cr_weight0 cr_weight1 */
-/*		how_many weights cr_weight;*/
-/*quit;*/
-/*run;*/
+proc datasets library = work nolist force nowarn;
+	delete _case_weights _cases_new discrd rs_ageadj2 cr_weight0 cr_weight1 
+		how_many weights cr_weight;
+quit;
+run;
 
 *	end of processing (also error return);
 %fin:
