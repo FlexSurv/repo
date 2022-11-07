@@ -5,8 +5,8 @@
 	5 Nov 2021
 
 	11 Jan 2022
-	added option for calculation of CIs that allows chosing either loghaz 
-	or log transform (see CI parameter)
+	added option for calculation of CIs that allows chosing either log cumulative excess hazard 
+	or  untransformed cumulative excess hazard (see CI parameter)
 
 */
 
@@ -162,9 +162,10 @@
 	%let cens_var = %scan(&censor.,1,'(');
 	%let cens_val = %scan(&censor.,2,'()');
 	%if &cens_val. eq  %then %err_mess(censoring value is required); 
-	%if &intervals. eq  %then %err_mess(intervals parameter is required); 
-	%if &intervals. ne  and %lowcase(&intervals.) ne failures %then %do;
-		%if %scan(&intervals., 1) ne 0 %then %err_mess(intervals must start at 0); 
+	%if "&intervals." eq "" %then %err_mess(intervals parameter is required); 
+	%if "&intervals." ne "" %then %do;
+		%if %lowcase(%substr(&intervals. ,1,1)) eq f %then %let intervals = failures;
+		%else %if %scan(&intervals., 1) ne 0 %then %err_mess(intervals must start at 0); 
 	%end;
 	%if "&PatientID." eq "" %then %err_mess(patient ID parameter is required); 
 
@@ -1219,7 +1220,7 @@ run;
 *	clean up temporary files;
 proc datasets library = work nolist force nowarn;
 	delete _case_weights _cases_new discrd rs_ageadj2 cr_weight0 cr_weight1 
-		how_many weights cr_weight;
+		how_many weights cr_weight _breaks_;
 quit;
 run;
 
@@ -1309,12 +1310,14 @@ Example program:  http://www.biostat.ku.dk/~bxc/Lexis/xLexis.sas
 %if %upcase("&breaks.") = "FAILURES" %then %do;
 %put Generating breaks for each distinct failure time;
 proc sql noprint;
-	select distinct ( &exit.  -  &origin. ) / &scale. 
-		format 9.2 into : breaks
-		separated by ', '
-		from &data.
+	create table _breaks_ as 
+		select  ( &exit.  -  &origin. ) / &scale. as breaks format 9.2 
+	from &data.
 		where &fail.
-		order by ( &exit.  -  &origin. ) / &scale.;
+	order by breaks;
+
+	select distinct breaks into : breaks
+		separated by ', ' from _breaks_;
 quit;
 %end;
 
