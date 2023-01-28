@@ -178,14 +178,6 @@ proc sgplot data = h4_plot;
 	xaxis label = 'Time since diagnosis';
 run;
 
-title 'fitted hazard functions from proportional hazards model';
-proc sgplot data = h4_plot;
-	series y = h1ph x = _t_/group=year8594;
-	yaxis label='Cause-specific mortality rate (per 1,000 pyrs)'
-		type = log;
-	xaxis label = 'Time since diagnosis';
-run;
-
 *	(h) hazard on log scale;
 title 'fitted hazard functions from proportional hazards model';
 proc sgplot data = h4_plot;
@@ -202,7 +194,7 @@ run;
 	data est; run;
 	data fit;run;
 	%do k = 1 %to 6;
-		%stpm2(year8594, scale=hazard, df=&k., options = eform);
+		%stpm2(year8594, scale=hazard, df=&k., options = eform noprint);
 		%predict(s&k., survival, at=year8594:0);
 		%predict(h&k., hazard, at=year8594:0, per = 1000);
 
