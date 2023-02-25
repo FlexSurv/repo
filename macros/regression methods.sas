@@ -82,6 +82,8 @@
 					all predictions are now merged back on to the _events_ file
 
 	21 Jan 2021		fixed bug in centile calculation when there are TVC variables
+
+	25 Feb 2023		add error trap in IML calculations (error will still appear in log)
 		
 */
 
@@ -1484,8 +1486,14 @@ run;
 *   functions of parameters to estimate
         x is vector of observed values
         e is vector of parameter estimates;
+
+*	added code to trap errors;
         start pred(e) global (x);
+			errFlag = 1;           /* set flag. Assume we will get an error :-) */   
+			on_error = "if errFlag then do;  p = .;  resume; end;";
+			call push(on_error);   /* PUSH code that will be executed if an error occurs */
             p = &pf.;
+			errFlag = 0;
             return (p);
         finish pred;
 
@@ -2221,6 +2229,9 @@ parameters specific to the estimation of lifelost:
 
 	4 JUne 2020
 	add conditional paramter for survival measures
+
+	25 Feb 2023
+	add error traping in proc IML 
 */
 
 
@@ -2435,13 +2446,19 @@ run;
             s1 = s0+&covpat.-1;
             p0 = 1+(s0-1)/&covpat.;
             x = obs[s0:s1,] ;
-			if obs[s0,1] >= &tcond. then do;
-            	call nlpfdd(p, grd, h, "pred", est);    *   returns estimate (p) and 1st derivatives (grd);
-            	SE_p =  sqrt(grd*cov*t(grd));   *   delta method to estimate SE;
-            	pred[p0,2] = exp(p);                    *   prediction;
-            	pred[p0,3] = exp(p-1.96*se_p);      *   Lower 95% conf. limit;
-            	pred[p0,4] = exp(p+1.96*se_p);      *   Upper 95% conf. limit;
+			if obs[s0,1] >= &tcond. then do; 
+            	call nlpfdd(p, grd, h, "pred_no_err", est);
+            	SE_p =  sqrt(grd*cov*t(grd));
+            	pred[p0,2] = exp(p); 
+            	pred[p0,3] = exp(p-1.96*se_p); 
+            	pred[p0,4] = exp(p+1.96*se_p); 
 			end;
+			else do;
+            	pred[p0,2] = .; 
+            	pred[p0,3] = .; 
+            	pred[p0,4] = .; 
+			end;
+
             pred[p0,1] = obs[s0,1];         *   time variable;
        end;);
 %end;
@@ -2657,6 +2674,8 @@ run;
     %put IML_var list = &iml_vars.;
     %put Parameter list = &parms.;
     %put first derivative of linear predictor = &dxb.;
+	%put first meansurv IML code = &iml_str1.;
+	%put second meansurv IML code = &iml_str2.;
 %end;
 
 *   generate spline variables and any tvc variables;
@@ -2742,9 +2761,19 @@ proc iml;
             plus theta constant and weight matrix, if required
         e is vector of parameter estimates;
     start pred(e) global (x , s &wt_str.);
+		errFlag = 1;
+   		on_error = "if errFlag then do; p = .;  resume; end;";
+   		call push(on_error);   /* PUSH code that will be executed if an error occurs */
 		p = &pred_p.;
+		errFlag = 0;
         return (p);
     finish pred;
+
+*	version of prediction function that can be called by finite difference function nlpfdd();
+    start pred_no_err(e) global (x , s &wt_str.);
+		p = &pred_p.;
+        return (p);
+    finish pred_no_err;
 
 *   call finite difference solver to get prediction, 1st derivatives of function
     wrt parameter estimates for each point of interest;
@@ -2765,21 +2794,25 @@ proc iml;
                 		pred[i,3] = .;
                 		pred[i,4] = .;
 					end;
-					else do;
-                		call nlpfdd(p, grd, h, "pred", est);    *   returns estimate (p) and 1st derivatives (grd);
-                		SE_p =  sqrt(grd*cov*t(grd));   *   delta method to estimate SE;
-                		pred[i,2] = p;                  *   prediction;
-                		pred[i,3] = p-1.96*se_p;        *   Lower 95% conf. limit;
-                		pred[i,4] = p+1.96*se_p;        *   Upper 95% conf. limit;
+*	test that prediction is estimable at this point;
+					else if pred(est) ^= . then do;
+	                	call nlpfdd(p, grd, h, "pred_no_err", est);    *   returns estimate (p) and 1st derivatives (grd);
+	                	SE_p =  sqrt(grd*cov*t(grd));   *   delta method to estimate SE;
+	                	pred[i,2] = p;                  *   prediction;
+	               		pred[i,3] = p-1.96*se_p;        *   Lower 95% conf. limit;
+	               		pred[i,4] = p+1.96*se_p;        *   Upper 95% conf. limit;
+					end;
+					else do;							*	prediction function returned error;
+	               		pred[i,2] = .; 
+	               		pred[i,3] = .;
+	               		pred[i,4] = .;
 					end;
                 	pred[i,1] = obs[i,1];           *   time variable;
-/*                	pred[i,5] = obs[i,ncol(obs)];   *   study id;*/
             	end;
             	else do;
   					if &uncured. & x[1] >= lastk then pred[i,2] = .;
 					else pred[i,2] = pred(est);          *   prediction;
               		pred[i,1] = obs[i,1];           *   time variable;
-/*                	pred[i,5] = obs[i,ncol(obs)];   *   study id;*/
             	end;  
 			end; 
         end;
@@ -2994,6 +3027,8 @@ run;
 
 proc optload data = work.myopts; run;
 %mend;          *    predict;
+
+
 
 
 *   compute spline values for specified scalar time point, and store
