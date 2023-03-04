@@ -1767,10 +1767,10 @@ run;
         %let n_mergegen = %sysfunc(countw(&mergegen.));
         %do _in = 1 %to &n_mergegen;
             %let w = %scan(&mergegen.,&_in," ");
-            %let var = %scan(&w.,1,':');
+            %let ex_var = %scan(&w.,1,':');
             %let val = %scan(&w.,2,':');
             %let mg_extra = &mg_extra. and a.%scan(&w.,1,':') = b.%scan(&w.,1,':');
-            %let code_extra = &code_extra. %str(&var. = &val.;);
+            %let code_extra = &code_extra. %str(&ex_var. = &val.;);
         %end;
     %end;
     
