@@ -1183,6 +1183,8 @@ proc print data = _fit_ noobs label;
     label descr = 'Criterion'
         value = 'Value';
     title 'results of fit';
+	
+	format value 10.;
 run;
 
 proc print data = _dim_ noobs label;
