@@ -42,8 +42,7 @@
 							/*	monthly to 6 months, then every 3 months to 2 years		*/
 							/*	these defaults are for the CPAC 2-yr analysis			*/
 							/*	the specification intervals = failures is also allowed	*/
-	popmort = stat.life_tab2014,
-							/*	life table for your province							*/
+	popmort = life_table,		/*	population life table for your province or geography			*/
 	survprob = prob,		/*	variable in life table holding survival probability 	*/	
 	ci = loghaz,			/*	loghaz for log cumulative excess hazard 				*/
 							/*	that is, log(-log(R(t)))								*/
